@@ -1,0 +1,124 @@
+services:
+  devcontainer:
+    container_name: de-devcontainer
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: devcontainer
+    hostname: data
+    volumes:
+      - ./src:/home/dev/workspace:cached
+    environment:
+      - POSTGRES_PASSWORD=7W7gArdbKZ2LWsq7
+      - POSTGRES_USER=dev
+      - POSTGRES_DB=data
+      - SPARK_MASTER=spark-master.local:7077
+    depends_on:
+      - jupyterlab
+      - spark-worker
+    networks:
+      - shared
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 2048m
+  postgres:
+    image: postgres:17.0-alpine3.20
+    container_name: de-postgres
+    networks:
+      shared:
+        aliases:
+          - postgres.local
+    expose:
+      - 5432
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    environment:
+      - POSTGRES_PASSWORD=7W7gArdbKZ2LWsq7
+      - POSTGRES_USER=dev
+      - POSTGRES_DB=data
+    volumes:
+      - psql:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 6<> /dev/tcp/postgres.local/5432"]
+      interval: 10s
+      retries: 5
+      timeout: 2s
+    restart: unless-stopped
+  jupyterlab:
+    image: data-engineering/jupyterlab:latest
+    container_name: de-jupyterlab
+    ports:
+      - 8888:8888
+      - 4040:4040
+    volumes:
+      - hadoop:/opt/workspace
+    depends_on:
+      - spark-master
+    networks:
+      - shared
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    restart: unless-stopped
+  spark-master:
+    image: data-engineering/spark-master:latest
+    container_name: de-spark-master
+    expose:
+      - 7077
+    ports:
+      - 8080:8080
+    volumes:
+      - hadoop:/opt/workspace
+    networks:
+      shared:
+        aliases:
+          - spark-master.local
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 6<> /dev/tcp/spark-master.local/7077"]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    restart: unless-stopped
+  spark-worker:
+    image: data-engineering/spark-worker:latest
+    container_name: de-spark-worker
+    environment:
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=512m
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
+    expose:
+      - 8081
+    volumes:
+      - hadoop:/opt/workspace
+    depends_on:
+      - spark-master
+    networks:
+      - shared
+    restart: unless-stopped
+networks:
+  shared:
+    name: de-shared
+    driver: bridge
+volumes:
+  hadoop:
+    name: de-hadoop
+    driver: local
+  psql:
+    name: de-psql
+    driver: local
